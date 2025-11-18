@@ -1,21 +1,3 @@
-# ===== BACKTEST RESULTS =====
-# Symbol: BTC-USD/USD
-# Timeframe: 30m
-# Data period: 2025-09-18 to 2025-11-17
-# Bars analyzed: 2,858
-# Trades executed: 43
-# Starting capital: $20.00
-# Ending capital:  $30.86
-# Total Net P/L:   $10.86
-# Average trade P/L: $0.27
-# Median trade P/L:  $0.18
-# Win rate: 51.16%
-# Legs: wins=22, losses=21
-# Max drawdown: 8.90%
-
-# ===== CRYPTO TRADING BOT BACKTEST (YFinance Version) =====
-# Fetch data from Yahoo Finance instead of parquet files
-
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -24,13 +6,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import yfinance as yf
+import os
 
 # -------------------------
 # USER PARAMETERS
 # -------------------------
-SYMBOL = "BTC-USD"  # BTC-USD, ETH-USD, DOGE-USD, SOL-USD, ADA-USD
-INTERVAL = "30m"      # "5m", "15m", "30m", "1h"
-LIMIT = 10000         # Max bars to use for backtest
+SYMBOLS = ["BTC-USD", "ETH-USD", "DOGE-USD", "SOL-USD", "ADA-USD", "XRP-USD", "BNB-USD", "TRX-USD", "LINK-USD"]
+INTERVAL = "5m"      # "5m", "15m", "30m", "1h"
+LIMIT = 100000         # Max bars to use for backtest
 
 INITIAL_CAPITAL = 20.0
 LEVERAGE = 2
@@ -41,14 +24,14 @@ SLIPPAGE_PCT = 0.0002
 RR_FOLLOW = 2.5
 ATR_SL_MULT = 2.0
 
-ALLOW_OVERLAP = False
+ALLOW_OVERLAP = True
 
 # -------------------------
 # DATA LOADING
 # -------------------------
 def load_from_yfinance(symbol, interval, limit):
     print(f"Fetching {symbol} {interval} data from Yahoo Finance...")
-    df = yf.download(symbol, period="max", interval=interval)
+    df = yf.download(symbol, period="max", interval=interval, progress=False)
     
     # Flatten multi-level columns if present
     if isinstance(df.columns, pd.MultiIndex):
@@ -65,9 +48,6 @@ def load_from_yfinance(symbol, interval, limit):
         print(f"Using last {limit:,} bars for backtest")
     print(f"Loaded {len(df):,} bars | {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
     return df
-
-# Load data
-df = load_from_yfinance(SYMBOL, INTERVAL, LIMIT)
 
 # -------------------------
 # INDICATORS
@@ -125,8 +105,6 @@ def compute_indicators(df):
     df['trend_strength'] = (df['fast_ma'] - df['slow_ma']) / (df['atr'] + 1e-8)
     
     return df
-
-df = compute_indicators(df)
 
 # -------------------------
 # BIAS FUNCTION
@@ -277,136 +255,152 @@ def check_stops_in_bar(o, h, l, c, tp_level, sl_level, bias):
 # -------------------------
 # BACKTEST
 # -------------------------
-capital = INITIAL_CAPITAL
-equity_curve = [capital]
-results = []
-legs_stats = {"win":0, "loss":0}
-trade_num = 0
+def run_backtest(symbol, interval, limit):
+    df = load_from_yfinance(symbol, interval, limit)
+    df = compute_indicators(df)
 
-i = 1
-pbar = tqdm(total=len(df), desc="Backtesting", unit="bar")
-while i < len(df)-1:
-    pbar.update(1)
-    bias = get_bias(df, i)
-    if bias is None:
-        i += 1
-        continue
+    capital = INITIAL_CAPITAL
+    equity_curve = [capital]
+    results = []
+    legs_stats = {"win":0, "loss":0}
+    trade_num = 0
 
-    entry_price = float(df["open"].iloc[i+1])
-    atr_val = float(df["atr"].iloc[i])
-    levels = calculate_trade_levels(entry_price, atr_val, bias, RR_FOLLOW, ATR_SL_MULT)
+    i = 1
+    pbar = tqdm(total=len(df), desc=f"Backtesting {symbol}", unit="bar", leave=False)
+    while i < len(df)-1:
+        pbar.update(1)
+        bias = get_bias(df, i)
+        if bias is None:
+            i += 1
+            continue
 
-    size = (capital * LEVERAGE) / entry_price
-    if size <= 0:
-        i += 1
-        continue
+        entry_price = float(df["open"].iloc[i+1])
+        atr_val = float(df["atr"].iloc[i])
+        levels = calculate_trade_levels(entry_price, atr_val, bias, RR_FOLLOW, ATR_SL_MULT)
 
-    entry_notional = entry_price * size
-    fee_entry = entry_notional * TAKER_FEE_RATE
-    capital -= fee_entry
+        MAX_MARGIN = 100.0  # USD
+        notional = capital if capital < MAX_MARGIN else MAX_MARGIN
 
-    trade_open = True
-    close_price = None
-    exit_type = None
+        size = (notional * LEVERAGE) / entry_price
+        # size = (capital * LEVERAGE) / entry_price
+        if size <= 0:
+            i += 1
+            continue
 
-    j = i + 2
-    while j < len(df) and trade_open:
-        o = float(df["open"].iloc[j])
-        h = float(df["high"].iloc[j])
-        l = float(df["low"].iloc[j])
-        c = float(df["close"].iloc[j])
+        entry_notional = entry_price * size
+        fee_entry = entry_notional * TAKER_FEE_RATE
+        capital -= fee_entry
 
-        hit_tp, hit_sl = check_stops_in_bar(o, h, l, c, levels["tp"], levels["sl"], bias)
+        trade_open = True
+        close_price = None
+        exit_type = None
 
-        if hit_tp:
-            close_price = levels["tp"] * ((1 + SLIPPAGE_PCT) if bias=="bull" else (1 - SLIPPAGE_PCT))
-            exit_type = "tp"
-            trade_open = False
-            break
-        elif hit_sl:
-            close_price = levels["sl"] * ((1 - SLIPPAGE_PCT) if bias=="bull" else (1 + SLIPPAGE_PCT))
-            exit_type = "sl"
-            trade_open = False
-            break
-        j += 1
+        j = i + 2
+        while j < len(df) and trade_open:
+            o = float(df["open"].iloc[j])
+            h = float(df["high"].iloc[j])
+            l = float(df["low"].iloc[j])
+            c = float(df["close"].iloc[j])
 
-    if trade_open:
-        final_price = float(df["close"].iloc[-1])
-        close_price = final_price * ((1 + SLIPPAGE_PCT) if bias=="bull" else (1 - SLIPPAGE_PCT))
-        exit_type = "mtm"
+            hit_tp, hit_sl = check_stops_in_bar(o, h, l, c, levels["tp"], levels["sl"], bias)
 
-    pl = (close_price - entry_price) * size if bias=="bull" else (entry_price - close_price) * size
-    exit_fee = abs(close_price*size)*TAKER_FEE_RATE
-    capital += pl
-    capital -= exit_fee
+            if hit_tp:
+                close_price = levels["tp"] * ((1 + SLIPPAGE_PCT) if bias=="bull" else (1 - SLIPPAGE_PCT))
+                exit_type = "tp"
+                trade_open = False
+                break
+            elif hit_sl:
+                close_price = levels["sl"] * ((1 - SLIPPAGE_PCT) if bias=="bull" else (1 + SLIPPAGE_PCT))
+                exit_type = "sl"
+                trade_open = False
+                break
+            j += 1
 
-    if pl > 0:
-        legs_stats["win"] +=1
-    else:
-        legs_stats["loss"] +=1
+        if trade_open:
+            final_price = float(df["close"].iloc[-1])
+            close_price = final_price * ((1 + SLIPPAGE_PCT) if bias=="bull" else (1 - SLIPPAGE_PCT))
+            exit_type = "mtm"
 
-    trade_num +=1
-    results.append({
-        "trade": trade_num,
-        "entry_index": i+1,
-        "entry_time": df["time"].iloc[i+1],
-        "bias": bias,
-        "size": size,
-        "entry": entry_price,
-        "stop_loss": levels['sl'],
-        "take_profit": levels['tp'],
-        "close_price": close_price,
-        "exit_type": exit_type,
-        "pl": pl,
-        "fee_entry": fee_entry,
-        "fee_exit": exit_fee,
-        "net": pl - exit_fee
-    })
+        pl = (close_price - entry_price) * size if bias=="bull" else (entry_price - close_price) * size
+        exit_fee = abs(close_price*size)*TAKER_FEE_RATE
+        capital += pl
+        capital -= exit_fee
 
-    equity_curve.append(capital)
-    i = j if not ALLOW_OVERLAP else i+1
+        if pl > 0:
+            legs_stats["win"] +=1
+        else:
+            legs_stats["loss"] +=1
 
-pbar.close()
+        trade_num +=1
+        results.append({
+            "trade": trade_num,
+            "entry_index": i+1,
+            "entry_time": df["time"].iloc[i+1],
+            "bias": bias,
+            "size": size,
+            "entry": entry_price,
+            "stop_loss": levels['sl'],
+            "take_profit": levels['tp'],
+            "close_price": close_price,
+            "exit_type": exit_type,
+            "pl": pl,
+            "fee_entry": fee_entry,
+            "fee_exit": exit_fee,
+            "net": pl - exit_fee
+        })
+
+        equity_curve.append(capital)
+        i = j if not ALLOW_OVERLAP else i+1
+
+    pbar.close()
+
+    res_df = pd.DataFrame(results)
+    os.makedirs("results", exist_ok=True)
+    csv_path = f"results/backtest_{symbol}_{interval}.csv"
+    res_df.to_csv(csv_path, index=False)
+    print(f"\nResults for {symbol} saved to: backtest_{symbol}_{interval}.csv")
+
+    net_pls = res_df["net"].values if not res_df.empty else np.array([])
+    total_net = capital - INITIAL_CAPITAL
+    avg_pl = np.mean(net_pls) if len(net_pls)>0 else 0.0
+    median_pl = np.median(net_pls) if len(net_pls)>0 else 0.0
+    win_rate = np.mean([1 if x>0 else 0 for x in net_pls])*100 if len(net_pls)>0 else 0.0
+
+    equity = np.array(equity_curve)
+    running_max = np.maximum.accumulate(equity)
+    drawdowns = (running_max - equity)/running_max
+    max_dd = np.max(drawdowns) if len(drawdowns)>0 else 0.0
+
+    return {
+        "Symbol": symbol,
+        "Timeframe": interval,
+        "Start Date": df['time'].iloc[0].strftime('%Y-%m-%d'),
+        "End Date": df['time'].iloc[-1].strftime('%Y-%m-%d'),
+        "Bars": len(df),
+        "Trades": len(res_df),
+        "Start Cap": f"${INITIAL_CAPITAL:.2f}",
+        "End Cap": f"${capital:.2f}",
+        "Net P/L": f"${total_net:.2f}",
+        "Avg P/L": f"${avg_pl:.2f}",
+        "Win Rate %": f"{win_rate:.2f}",
+        "Wins": legs_stats['win'],
+        "Losses": legs_stats['loss'],
+        "Max DD %": f"{max_dd*100:.2f}"
+    }
 
 # -------------------------
-# REPORT
+# MAIN EXECUTION
 # -------------------------
-res_df = pd.DataFrame(results)
-net_pls = res_df["net"].values if not res_df.empty else np.array([])
+if __name__ == "__main__":
+    all_results = []
+    for symbol in SYMBOLS:
+        try:
+            result = run_backtest(symbol, INTERVAL, LIMIT)
+            all_results.append(result)
+        except Exception as e:
+            print(f"An error occurred while backtesting {symbol}: {e}")
 
-total_net = capital - INITIAL_CAPITAL
-avg_pl = np.mean(net_pls) if len(net_pls)>0 else 0.0
-median_pl = np.median(net_pls) if len(net_pls)>0 else 0.0
-win_rate = np.mean([1 if x>0 else 0 for x in net_pls])*100 if len(net_pls)>0 else 0.0
-
-equity = np.array(equity_curve)
-running_max = np.maximum.accumulate(equity)
-drawdowns = (running_max - equity)/running_max
-max_dd = np.max(drawdowns) if len(drawdowns)>0 else 0.0
-
-print("\n===== BACKTEST RESULTS =====")
-print(f"Symbol: {SYMBOL}/USD")
-print(f"Timeframe: {INTERVAL}")
-print(f"Data period: {df['time'].iloc[0].strftime('%Y-%m-%d')} to {df['time'].iloc[-1].strftime('%Y-%m-%d')}")
-print(f"Bars analyzed: {len(df):,}")
-print(f"Trades executed: {len(res_df)}")
-print(f"Starting capital: ${INITIAL_CAPITAL:.2f}")
-print(f"Ending capital:  ${capital:.2f}")
-print(f"Total Net P/L:   ${total_net:.2f}")
-print(f"Average trade P/L: ${avg_pl:.2f}")
-print(f"Median trade P/L:  ${median_pl:.2f}")
-print(f"Win rate: {win_rate:.2f}%")
-print(f"Legs: wins={legs_stats['win']}, losses={legs_stats['loss']}")
-print(f"Max drawdown: {max_dd*100:.2f}%")
-
-plt.figure(figsize=(10,4))
-plt.plot(equity, marker='o', linewidth=1, markersize=2)
-plt.title(f'Equity Curve - {SYMBOL}/USD {INTERVAL}')
-plt.xlabel('Trade number')
-plt.ylabel('Capital (USD)')
-plt.grid(alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-res_df.to_csv(f"backtest_{SYMBOL}_{INTERVAL}.csv", index=False)
-print(f"\nResults saved to: backtest_{SYMBOL}_{INTERVAL}.csv")
+    if all_results:
+        summary_df = pd.DataFrame(all_results)
+        print("\n\n===== SUMMARY BACKTEST RESULTS =====")
+        print(summary_df.to_string())
