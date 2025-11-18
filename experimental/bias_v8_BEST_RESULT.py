@@ -29,8 +29,8 @@ import yfinance as yf
 # USER PARAMETERS
 # -------------------------
 SYMBOL = "BTC-USD"  # BTC-USD, ETH-USD, DOGE-USD, SOL-USD, ADA-USD
-INTERVAL = "30m"      # "5m", "15m", "30m", "1h"
-LIMIT = 10000         # Max bars to use for backtest
+INTERVAL = "1h"      # "5m", "15m", "30m", "1h"
+LIMIT = 1000000         # Max bars to use for backtest
 
 INITIAL_CAPITAL = 20.0
 LEVERAGE = 2
@@ -41,7 +41,7 @@ SLIPPAGE_PCT = 0.0002
 RR_FOLLOW = 2.5
 ATR_SL_MULT = 2.0
 
-ALLOW_OVERLAP = True
+ALLOW_OVERLAP = False
 
 # -------------------------
 # DATA LOADING

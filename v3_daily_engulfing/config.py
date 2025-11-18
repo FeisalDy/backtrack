@@ -1,0 +1,43 @@
+"""V3 Configuration"""
+import os
+import multiprocessing as mp
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(SCRIPT_DIR, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+SYMBOLS = ["BTC-USD", "ETH-USD", "DOGE-USD", "SOL-USD", "ADA-USD", "XRP-USD", 
+           "BNB-USD", "TRX-USD", "LINK-USD", "AVAX-USD", "DOT-USD", "LTC-USD", "BCH-USD"]
+
+INTERVAL = "15m"
+LIMIT = 100000
+PERIOD = "60d"  # Yahoo Finance 15m data limited to 60 days
+
+INITIAL_CAPITAL = 20.0
+LEVERAGE = 2
+MAX_MARGIN = 60.0
+
+TAKER_FEE_RATE = 0.0004
+SLIPPAGE_PCT = 0.0002
+
+TRADING_START_HOUR = 7
+DAY_END_HOUR = 23
+DAY_END_MINUTE = 59
+
+TREND_EMA_FAST = 20
+TREND_EMA_SLOW = 50
+
+MIN_ENGULFING_SIZE_PCT = 0.3
+MIN_BODY_TO_WICK_RATIO = 0.6
+
+SWEEP_TOLERANCE_PCT = 0.1
+LOOKBACK_FOR_SWEEP = 10
+
+MIN_FVG_SIZE_PCT = 0.1
+
+MIN_RISK_PCT = 0.1
+MAX_RISK_PCT = 2.0
+STOP_BELOW_ENGULFING_PCT = 0.2
+
+MAX_BARS_AHEAD = 1000
+MAX_WORKERS = min(6, mp.cpu_count())
