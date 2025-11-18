@@ -19,15 +19,16 @@ SYMBOLS = [
     "BTC-USD", "ETH-USD", "DOGE-USD", "SOL-USD", 
     "ADA-USD", "XRP-USD", "BNB-USD", "TRX-USD", "LINK-USD"
 ]
-INTERVAL = "5m"      # Options: "5m", "15m", "30m", "1h", "1d"
+INTERVAL = "1h"      # Options: "5m", "15m", "30m", "1h", "1d"
 LIMIT = 100000       # Max bars to use for backtest
+PERIOD = "720d" #7d, 60d, 720d
 
 # -------------------------
 # CAPITAL & RISK MANAGEMENT
 # -------------------------
 INITIAL_CAPITAL = 20.0
 LEVERAGE = 2
-MAX_MARGIN = 100.0  # USD - Maximum margin per trade
+MAX_MARGIN = 60.0  # USD - Maximum margin per trade
 
 # -------------------------
 # FEE & SLIPPAGE
@@ -38,8 +39,11 @@ SLIPPAGE_PCT = 0.0002    # 0.02%
 # -------------------------
 # STRATEGY PARAMETERS
 # -------------------------
-RR_FOLLOW = 2.5         # Risk-reward ratio
-ATR_SL_MULT = 2.0       # ATR multiplier for stop loss
+RR_FOLLOW = 2.5         # Risk-reward ratio (minimum required)
+ATR_SL_MULT = 2.0       # ATR multiplier for stop loss (legacy, not used in new S/R strategy)
+ZONE_PENETRATION = 0.2  # How deep into S/R zone to enter (20%)
+SR_LOOKBACK = 20        # Bars to look back for S/R detection
+SR_MIN_TOUCHES = 2      # Minimum touches to confirm S/R zone
 
 # Bias scoring thresholds
 BIAS_BULL_THRESHOLD = 8.0

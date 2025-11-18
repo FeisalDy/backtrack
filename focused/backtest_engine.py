@@ -9,17 +9,19 @@ import os
 
 from config import (
     INITIAL_CAPITAL, LEVERAGE, TAKER_FEE_RATE, SLIPPAGE_PCT,
-    RR_FOLLOW, ATR_SL_MULT, ALLOW_OVERLAP, MAX_BARS_AHEAD,
-    MAX_MARGIN, RESULTS_DIR, INTERVAL
+    RR_FOLLOW, ALLOW_OVERLAP, MAX_BARS_AHEAD,
+    MAX_MARGIN, RESULTS_DIR, INTERVAL, ZONE_PENETRATION,
+    SR_LOOKBACK, SR_MIN_TOUCHES
 )
 from data_loader import load_from_yfinance
 from indicators import compute_indicators
 from bias_scoring import compute_bias_vectorized
-from trading import calculate_trade_levels, check_stops_vectorized
+from trading import check_stops_vectorized
+from support_resistance import find_support_resistance_zones, get_entry_from_zone, validate_risk_reward
 from visualization import plot_equity_curve, plot_trade_distribution
 
 
-def run_backtest(symbol, interval, limit):
+def run_backtest(symbol, interval, limit, period):
     """
     Execute full backtest for a single symbol.
     
@@ -38,13 +40,17 @@ def run_backtest(symbol, interval, limit):
         Dictionary with backtest summary statistics
     """
     # Load and prepare data
-    df = load_from_yfinance(symbol, interval, limit)
+    df = load_from_yfinance(symbol, interval, limit, period)
     df = compute_indicators(df)
     
     # Calculate all bias values at once (vectorized)
     print(f"Computing bias scores for {len(df):,} bars...")
     bias_series = compute_bias_vectorized(df)
     df['bias'] = bias_series
+    
+    # Find support and resistance zones
+    print(f"Detecting support/resistance zones...")
+    df = find_support_resistance_zones(df, lookback=SR_LOOKBACK, min_touches=SR_MIN_TOUCHES)
 
     # Initialize trading state
     capital = INITIAL_CAPITAL
@@ -69,10 +75,28 @@ def run_backtest(symbol, interval, limit):
         
         bias = df['bias'].iloc[i]
         
-        # Entry on next bar's open
-        entry_price = float(df["open"].iloc[i+1])
-        atr_val = float(df["atr"].iloc[i])
-        levels = calculate_trade_levels(entry_price, atr_val, bias, RR_FOLLOW, ATR_SL_MULT)
+        # Get entry and stop from S/R zone
+        zone_levels = get_entry_from_zone(df, i, bias, ZONE_PENETRATION)
+        
+        if zone_levels is None:
+            # No valid S/R zone found, skip this signal
+            i_idx += 1
+            continue
+        
+        entry_price = zone_levels['entry']
+        stop_price = zone_levels['stop']
+        
+        # Validate risk-reward ratio
+        rr_validation = validate_risk_reward(entry_price, stop_price, bias, RR_FOLLOW)
+        
+        if rr_validation is None:
+            # RR ratio too low, skip this trade
+            i_idx += 1
+            continue
+        
+        tp_price = rr_validation['tp']
+        risk_amount = rr_validation['risk']
+        rr_ratio = rr_validation['rr_ratio']
 
         # Position sizing with margin limit
         notional = capital if capital < MAX_MARGIN else MAX_MARGIN
@@ -95,15 +119,15 @@ def run_backtest(symbol, interval, limit):
             i_idx += 1
             continue
         
-        rel_idx, exit_type = check_stops_vectorized(df_slice, levels["tp"], levels["sl"], bias)
+        rel_idx, exit_type = check_stops_vectorized(df_slice, tp_price, stop_price, bias)
         
         if rel_idx >= 0:
             # Stop was hit
             abs_idx = i + 2 + rel_idx
             if exit_type == "tp":
-                close_price = levels["tp"] * ((1 + SLIPPAGE_PCT) if bias=="bull" else (1 - SLIPPAGE_PCT))
+                close_price = tp_price * ((1 + SLIPPAGE_PCT) if bias=="bull" else (1 - SLIPPAGE_PCT))
             else:  # sl
-                close_price = levels["sl"] * ((1 - SLIPPAGE_PCT) if bias=="bull" else (1 + SLIPPAGE_PCT))
+                close_price = stop_price * ((1 - SLIPPAGE_PCT) if bias=="bull" else (1 + SLIPPAGE_PCT))
         else:
             # No stop hit within max_bars_ahead - mark-to-market exit
             final_price = float(df["close"].iloc[min(i+2+max_bars_ahead-1, len(df)-1)])
@@ -129,16 +153,19 @@ def run_backtest(symbol, interval, limit):
             "entry_index": i+1,
             "entry_time": df["time"].iloc[i+1],
             "bias": bias,
+            "zone": zone_levels['zone'],
+            "rr_ratio": rr_ratio,
             "size": size,
             "entry": entry_price,
-            "stop_loss": levels['sl'],
-            "take_profit": levels['tp'],
+            "stop_loss": stop_price,
+            "take_profit": tp_price,
             "close_price": close_price,
             "exit_type": exit_type,
             "pl": pl,
             "fee_entry": fee_entry,
             "fee_exit": exit_fee,
-            "net": pl - exit_fee
+            "net": pl - exit_fee,
+            "balance": capital
         })
 
         equity_curve.append(capital)
@@ -156,7 +183,7 @@ def run_backtest(symbol, interval, limit):
 
     # Save results to CSV
     res_df = pd.DataFrame(results)
-    csv_path = os.path.join(RESULTS_DIR, f"backtest_{symbol}_{interval}.csv")
+    csv_path = os.path.join(RESULTS_DIR, f"{interval}_{symbol}_backtest.csv")
     res_df.to_csv(csv_path, index=False)
     print(f"\nResults for {symbol} saved to: {csv_path}")
 
@@ -167,7 +194,7 @@ def run_backtest(symbol, interval, limit):
     print(f"✅ Charts saved for {symbol}")
 
     # Calculate performance metrics
-    net_pls = res_df["net"].values if not res_df.empty else np.array([])
+    net_pls: np.ndarray = res_df["net"].to_numpy(dtype=float) if not res_df.empty else np.array([], dtype=float)
     total_net = capital - INITIAL_CAPITAL
     avg_pl = np.mean(net_pls) if len(net_pls)>0 else 0.0
     median_pl = np.median(net_pls) if len(net_pls)>0 else 0.0
@@ -206,9 +233,9 @@ def backtest_single_symbol(args):
     Returns:
         Backtest result dictionary or None on error
     """
-    symbol, interval, limit = args
+    symbol, interval, limit, period = args
     try:
-        return run_backtest(symbol, interval, limit)
+        return run_backtest(symbol, interval, limit, period)
     except Exception as e:
         print(f"Error backtesting {symbol}: {e}")
         return None

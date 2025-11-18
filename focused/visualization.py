@@ -49,7 +49,7 @@ def plot_equity_curve(equity_curve, symbol, initial_capital):
     ax2.invert_yaxis()
     
     plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, f'equity_curve_{symbol}_{INTERVAL}.png'), 
+    plt.savefig(os.path.join(RESULTS_DIR, f'{INTERVAL}_{symbol}_equity_curve.png'), 
                 dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -121,7 +121,7 @@ def plot_trade_distribution(res_df, symbol):
     
     plt.suptitle(f'{symbol} - Trade Analysis', fontsize=16, fontweight='bold', y=1.00)
     plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, f'trade_analysis_{symbol}_{INTERVAL}.png'), 
+    plt.savefig(os.path.join(RESULTS_DIR, f'{INTERVAL}_{symbol}_trade_analysis.png'), 
                 dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -178,7 +178,6 @@ def plot_performance_comparison(all_results):
     plt.suptitle(f'Performance Comparison - {INTERVAL} Timeframe', 
                  fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
-    plt.savefig(os.path.join(RESULTS_DIR, f'performance_comparison_{INTERVAL}.png'), 
+    plt.savefig(os.path.join(RESULTS_DIR, f'{INTERVAL}_performance_comparison.png'), 
                 dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"\n✅ Performance comparison chart saved: {os.path.join(RESULTS_DIR, f'performance_comparison_{INTERVAL}.png')}")

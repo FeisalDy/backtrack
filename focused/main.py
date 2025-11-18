@@ -10,7 +10,7 @@ warnings.filterwarnings("ignore")
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor
 
-from config import SYMBOLS, INTERVAL, LIMIT, MAX_WORKERS
+from config import SYMBOLS, INTERVAL, LIMIT, MAX_WORKERS, PERIOD
 from backtest_engine import backtest_single_symbol
 from visualization import plot_performance_comparison
 
@@ -38,7 +38,7 @@ def main():
     print(f"Starting backtest with {MAX_WORKERS} parallel workers...")
     
     # Prepare arguments for parallel processing
-    args_list = [(symbol, INTERVAL, LIMIT) for symbol in SYMBOLS]
+    args_list = [(symbol, INTERVAL, LIMIT, PERIOD) for symbol in SYMBOLS]
     
     # Execute backtests in parallel
     with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:

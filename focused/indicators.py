@@ -2,9 +2,6 @@
 Technical indicators module.
 Single Responsibility: Calculate all technical indicators for the strategy.
 """
-import pandas as pd
-
-
 def compute_indicators(df):
     """
     Compute all technical indicators needed for bias calculation.
